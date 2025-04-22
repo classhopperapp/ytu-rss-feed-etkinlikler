@@ -1,13 +1,17 @@
 name: RSS Güncelleme
 on:
   schedule:
-    - cron: '0 8 * * *' # Her gün 08:00 UTC (Türkiye saatiyle 11:00)
+    - cron: '0 2,8,14,20 * * *' # Günde 4 kez: 02:00, 08:00, 14:00, 20:00 UTC (Türkiye saatiyle 05:00, 11:00, 17:00, 23:00)
   workflow_dispatch: # Manuel çalıştırma için
+permissions:
+  contents: write # Repository içeriğine yazma izni ekleyin
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # Token ekleyin
       - name: Python Kurulumu
         uses: actions/setup-python@v4
         with:
@@ -18,7 +22,7 @@ jobs:
         run: python rss_generator.py
       - name: RSS Dosyasını Commit Et
         run: |
-          git config --local user.email "action@github.com"
+          git config --local user.email "ebartan@gmail.com"
           git config --local user.name "GitHub Action"
           git add ytu_etkinlikler.xml
           git commit -m "RSS dosyası güncellendi" || echo "Değişiklik yok"

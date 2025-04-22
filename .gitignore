@@ -169,9 +169,6 @@ cython_debug/
 
 # Ruff stuff:
 .ruff_cache/
-
-# PyPI configuration file
-.pypirc
 C/x3a/Users/ebart/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0/LocalCache/local-packages/Python310/site-packages/typing_extensions.py
 C/x3a/Users/ebart/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0/LocalCache/local-packages/Python310/site-packages/beautifulsoup4-4.13.4.dist-info/INSTALLER
 C/x3a/Users/ebart/AppData/Local/Packages/PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0/LocalCache/local-packages/Python310/site-packages/beautifulsoup4-4.13.4.dist-info/METADATA
