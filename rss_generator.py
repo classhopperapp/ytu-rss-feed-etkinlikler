@@ -26,289 +26,121 @@ def scrape_ytu_events():
         # List to store event information
         events = []
         
-        # Based on the results, we need to find complete event containers
-        # Let's try a different approach by looking for specific event patterns
+        # Get the main content text
+        content_text = soup.get_text()
         
-        # Look for event containers - typically divs or sections containing complete event info
-        event_containers = soup.select('.event-container, .event-box, .card, article, section.event')
+        # Parse events from the raw text using regex patterns
+        # This approach is more reliable for the specific YTU events page structure
         
-        if event_containers:
-            for container in event_containers:
-                event_info = {
-                    'title': '',
-                    'url': '',
-                    'date': '',
-                    'time': '',
-                    'location': '',
-                    'description': ''
-                }
-                
-                # Extract event title
-                title_elem = container.select_one('h2, h3, h4, .event-title, .title')
-                if title_elem:
-                    event_info['title'] = title_elem.get_text(strip=True)
-                
-                # Extract event URL
-                link_elem = container.select_one('a')
-                if link_elem and link_elem.has_attr('href'):
-                    url = link_elem['href']
-                    if url.startswith('/'):
-                        url = 'https://www.yildiz.edu.tr' + url
-                    event_info['url'] = url
-                
-                # Extract date, time, location
-                # Look for specific patterns or classes
-                date_elem = container.select_one('.date, .event-date')
-                if date_elem:
-                    event_info['date'] = date_elem.get_text(strip=True)
-                
-                time_elem = container.select_one('.time, .event-time')
-                if time_elem:
-                    event_info['time'] = time_elem.get_text(strip=True)
-                
-                location_elem = container.select_one('.location, .venue, .place')
-                if location_elem:
-                    event_info['location'] = location_elem.get_text(strip=True)
-                
-                # Extract description
-                desc_elem = container.select_one('.description, .summary, .content')
-                if desc_elem:
-                    event_info['description'] = desc_elem.get_text(strip=True)
-                
-                # Add to events if we have at least a title
-                if event_info['title']:
-                    events.append(event_info)
+        # Define month abbreviations in Turkish for date parsing
+        month_abbr_map = {
+            'Oca': '01', 'Şub': '02', 'Mar': '03', 'Nis': '04', 
+            'May': '05', 'Haz': '06', 'Tem': '07', 'Ağu': '08', 
+            'Eyl': '09', 'Eki': '10', 'Kas': '11', 'Ara': '12'
+        }
         
-        # If the above approach didn't work, try to find event blocks using more specific patterns
-        if not events:
-            # Look for event listing structure
-            # Based on output, we might be seeing individual fields instead of complete events
-            # Let's try to reconstruct events by grouping related elements
+        # Pattern to match event blocks: date code + title + location + time
+        # Example: "16EylYTÜ Bilimsel Araştırma Projesi Hazırlama Eğitimi Başlıyor YTÜ Elektrik-Elektronik Fakültesi Konferans SalonuSaat : 09:00"
+        event_pattern = r'(\d{2})(Oca|Şub|Mar|Nis|May|Haz|Tem|Ağu|Eyl|Eki|Kas|Ara)([^S]+)Saat\s*:\s*(\d{1,2}:\d{2})'
+        
+        # Find all matches
+        event_matches = re.finditer(event_pattern, content_text)
+        
+        for match in event_matches:
+            day = match.group(1)
+            month_abbr = match.group(2)
+            month = month_abbr_map.get(month_abbr, '01')  # Default to January if not found
+            title_and_location = match.group(3).strip()
+            time = match.group(4)
             
-            # Try to find the main content area first
-            content_area = soup.select_one('.main-content, #content, .content, main, #main')
+            # Try to separate title and location
+            # Location often follows the title and may contain specific venue information
+            location = ""
+            title = title_and_location
             
-            if content_area:
-                # Look for divs that might contain event info
-                time_elements = content_area.select('div:contains("Saat :")')
-                location_elements = content_area.select('div:contains("Yer :")')
-                title_elements = content_area.select('h2, h3, h4, .event-title')
-                
-                # If we found time/location elements but not title elements, the titles might be near these elements
-                if (time_elements or location_elements) and not title_elements:
-                    # Try to find event blocks and extract complete information
-                    for element in time_elements + location_elements:
-                        # Find the parent container that might hold the complete event
-                        event_container = find_parent_container(element)
+            # Check if there's a location part (usually contains campus names, building names, etc.)
+            location_indicators = [
+                "Kampüsü", "Fakültesi", "Salonu", "Merkezi", "Müzesi", 
+                "Konferans", "Çevrim İçi", "YTÜ", "Davutpaşa", "Oditoryum",
+                "İstanbul Modern"
+            ]
+            
+            # Remove "Yer :" from the title if present
+            if "Yer :" in title:
+                title = title.split("Yer :")[0].strip()
+            
+            # Try to find where the location starts
+            location_parts = []
+            for indicator in location_indicators:
+                if indicator in title_and_location:
+                    # Find the last occurrence of the indicator
+                    pos = title_and_location.rfind(indicator)
+                    if pos > len(title_and_location) // 3:  # Only consider if it's in the latter part of the string
+                        # Look for the start of the location phrase
+                        start_pos = max(0, title_and_location[:pos].rfind(" "))
+                        location_part = title_and_location[start_pos:].strip()
+                        location_parts.append(location_part)
                         
-                        if event_container:
-                            event_info = extract_event_from_container(event_container)
-                            if event_info['title'] or event_info['description']:
-                                events.append(event_info)
+            if location_parts:
+                # Use the longest location part found
+                location = max(location_parts, key=len)
+                # Remove the location from the title
+                title = title_and_location.replace(location, "").strip()
             
-            # If still no events, try to find all direct event links as a fallback
-            if not events:
-                event_links = soup.select('a[href*="etkinlik"], a[href*="event"]')
-                
-                for link in event_links:
-                    url = link['href']
-                    if url.startswith('/'):
-                        url = 'https://www.yildiz.edu.tr' + url
-                    
-                    title = link.get_text(strip=True)
-                    
-                    # Skip navigation links
-                    if any(nav_term in title.lower() for nav_term in 
-                          ['yil', 'ocak', 'şubat', 'mart', 'nisan', 'mayıs', 'haziran', 
-                           'temmuz', 'ağustos', 'eylül', 'ekim', 'kasım', 'aralık', 'tümü']):
-                        continue
-                    
-                    # Try to find related info near the link
-                    parent = link.parent
-                    
-                    date = find_date_near_element(parent)
-                    time = find_time_near_element(parent)
-                    location = find_location_near_element(parent)
-                    
-                    events.append({
-                        'title': title,
-                        'url': url,
-                        'date': date,
-                        'time': time,
-                        'location': location,
-                        'description': ''
-                    })
-        
-        # Try a more general approach - look for potential event blocks
-        if not events:
-            # Parse specific structure based on the observed output
-            # It seems events might be divided into individual elements with time, location, etc.
+            # If no location was found, check if "Yer :" appears in the text after this match
+            if not location:
+                next_text = content_text[match.end():match.end() + 100]
+                yer_match = re.search(r'Yer\s*:\s*([^\n]+)', next_text)
+                if yer_match:
+                    location = yer_match.group(1).strip()
             
-            # First, get all divs with "Saat :" text - these appear to be time indicators
-            time_divs = soup.find_all(lambda tag: tag.name == 'div' and 'Saat :' in tag.text)
-            location_divs = soup.find_all(lambda tag: tag.name == 'div' and 'Yer :' in tag.text)
+            # Create a date string (use current year as we don't have year in the data)
+            current_year = datetime.datetime.now().year
+            date_str = f"{day}/{month}/{current_year}"
             
-            # Group these elements into event objects
-            event_dict = {}
+            # Create URL for the event
+            # Convert title to URL-friendly format
+            url_title = title.lower().replace(" ", "-").replace(":", "").replace("?", "").replace(".", "")
+            url_title = re.sub(r'[^a-z0-9-]', '', url_title.replace('ş', 's').replace('ı', 'i').replace('ğ', 'g').replace('ü', 'u').replace('ö', 'o').replace('ç', 'c'))
+            event_url = f"https://www.yildiz.edu.tr/universite/ytu-etkinlik-takvimi/{url_title}"
             
-            # Process time divs
-            for time_div in time_divs:
-                # Get the text content and clean it
-                time_text = time_div.get_text(strip=True).replace('Saat :', '').strip()
-                
-                # Try to find nearby elements that might be related
-                parent = time_div.parent
-                siblings = list(parent.find_all(recursive=False))
-                
-                # Generate a key for this event based on position
-                key = f"event_{time_divs.index(time_div)}"
-                
-                # Create or update event entry
-                if key not in event_dict:
-                    event_dict[key] = {
-                        'title': '',
-                        'url': '',
-                        'date': '',
-                        'time': time_text,
-                        'location': '',
-                        'description': ''
-                    }
-                else:
-                    event_dict[key]['time'] = time_text
-                
-                # Look for event title around this time element
-                title_elem = find_title_near_element(time_div)
-                if title_elem:
-                    event_dict[key]['title'] = title_elem
-                
-                # Look for date around this time element
-                date = find_date_near_element(time_div)
-                if date:
-                    event_dict[key]['date'] = date
+            # Create event object
+            event = {
+                'title': title,
+                'url': event_url,
+                'date': date_str,
+                'time': time,
+                'location': location,
+                'description': '',
+                'day_month': f"{day}{month_abbr}"  # Store the original day+month code
+            }
             
-            # Process location divs and match them to events
-            for loc_div in location_divs:
-                location_text = loc_div.get_text(strip=True).replace('Yer :', '').strip()
-                
-                # Try to find which event this location belongs to
-                # Use the nearest time div as a reference
-                nearest_time_div = None
-                min_distance = float('inf')
-                
-                for time_div in time_divs:
-                    # Calculate "distance" in the DOM tree
-                    distance = dom_distance(time_div, loc_div)
-                    if distance < min_distance:
-                        min_distance = distance
-                        nearest_time_div = time_div
-                
-                if nearest_time_div:
-                    key = f"event_{time_divs.index(nearest_time_div)}"
-                    if key in event_dict:
-                        event_dict[key]['location'] = location_text
-                    
-                # If no matching time div found, this might be a separate event
-                else:
-                    key = f"event_loc_{location_divs.index(loc_div)}"
-                    event_dict[key] = {
-                        'title': '',
-                        'url': '',
-                        'date': '',
-                        'time': '',
-                        'location': location_text,
-                        'description': ''
-                    }
-                    
-                    # Look for event title around this location element
-                    title_elem = find_title_near_element(loc_div)
-                    if title_elem:
-                        event_dict[key]['title'] = title_elem
-            
-            # Convert dictionary to list of events
-            for key, event_info in event_dict.items():
-                # If we don't have a title yet, try to construct one from time and location
-                if not event_info['title']:
-                    components = []
-                    if event_info['time']:
-                        components.append(f"Etkinlik - {event_info['time']}")
-                    if event_info['location']:
-                        components.append(f"at {event_info['location']}")
-                    
-                    if components:
-                        event_info['title'] = " ".join(components)
-                    else:
-                        event_info['title'] = f"YTU Event {key}"
-                
-                # Add to events list
-                events.append(event_info)
-        
-        # Final attempt to parse directly from the complete page using regex patterns
-        if not events:
-            page_text = soup.get_text()
-            
-            # Look for patterns like "Saat : XX:XX" followed by "Yer : Location"
-            time_matches = re.finditer(r'Saat\s*:\s*(\d{1,2}:\d{2})', page_text)
-            
-            for time_match in time_matches:
-                time_text = time_match.group(1)
-                position = time_match.end()
-                
-                # Look for location pattern after this time
-                location_match = re.search(r'Yer\s*:\s*([^\n]+)', page_text[position:position+200])
-                location_text = location_match.group(1) if location_match else ""
-                
-                # Look for potential title before the time
-                title_match = re.search(r'([^\n]{10,100})\s*Saat\s*:', page_text[max(0, position-150):position])
-                title_text = title_match.group(1).strip() if title_match else f"Etkinlik - {time_text}"
-                
-                # Extract date if present
-                date_match = re.search(r'(\d{1,2}[./]\d{1,2}[./]\d{4}|\d{1,2}\s+\w+\s+\d{4})', 
-                                     page_text[position-100:position+100])
-                date_text = date_match.group(1) if date_match else ""
-                
-                events.append({
-                    'title': title_text,
-                    'url': '',
-                    'date': date_text,
-                    'time': time_text,
-                    'location': location_text,
-                    'description': f"Bu etkinlik {time_text} saatinde {location_text} yerinde gerçekleşecektir."
-                })
-        
-        # Process and normalize events
-        processed_events = []
-        for event in events:
-            # Create a combined title if the title is missing or just contains time/location
-            if not event['title'] or event['title'].startswith('Saat :') or event['title'].startswith('Yer :'):
-                elements = []
-                if event.get('time') and event['time'] != '':
-                    time_str = event['time'].replace('Saat :', '').strip()
-                    elements.append(f"Etkinlik {time_str}")
-                if event.get('location') and event['location'] != '':
-                    loc_str = event['location'].replace('Yer :', '').strip()
-                    elements.append(f"- {loc_str}")
-                
-                event['title'] = " ".join(elements) if elements else "YTU Etkinlik"
-            
-            # Create combined description
+            # Create a combined description
             description_parts = []
-            if event.get('date') and event['date'] != '' and event['date'] != 'Date not found':
-                description_parts.append(f"Tarih: {event['date']}")
-            if event.get('time') and event['time'] != '':
-                time_str = event['time'].replace('Saat :', '').strip()
-                description_parts.append(f"Saat: {time_str}")
-            if event.get('location') and event['location'] != '':
-                loc_str = event['location'].replace('Yer :', '').strip()
-                description_parts.append(f"Yer: {loc_str}")
-            if event.get('description') and event['description'] != '':
-                description_parts.append(event['description'])
+            if date_str:
+                description_parts.append(f"Tarih: {date_str}")
+            if time:
+                description_parts.append(f"Saat: {time}")
+            if location:
+                description_parts.append(f"Yer: {location}")
             
-            event['combined_description'] = "\n\n".join(description_parts)
+            event['combined_description'] = "\n".join(description_parts)
             
-            # Add to processed events
-            processed_events.append(event)
+            # Add to events list
+            events.append(event)
         
-        return processed_events
+        # Remove duplicate events (same title and time)
+        unique_events = []
+        seen = set()
+        
+        for event in events:
+            # Create a key based on title and time
+            key = (event['title'], event['time'])
+            if key not in seen:
+                seen.add(key)
+                unique_events.append(event)
+        
+        return unique_events
             
     except requests.exceptions.RequestException as e:
         print(f"Error fetching the page: {e}")
@@ -316,188 +148,6 @@ def scrape_ytu_events():
     except Exception as e:
         print(f"An error occurred: {e}")
         return []
-
-def find_parent_container(element, max_levels=3):
-    """Find a potential parent container for an event element"""
-    current = element
-    for _ in range(max_levels):
-        if current.parent:
-            current = current.parent
-            # Check if this parent might be an event container
-            if (current.name in ['div', 'article', 'section'] and 
-                len(list(current.find_all(['div', 'p', 'span'], recursive=False))) >= 2):
-                return current
-    
-    return None
-
-def extract_event_from_container(container):
-    """Extract event information from a container element"""
-    event_info = {
-        'title': '',
-        'url': '',
-        'date': '',
-        'time': '',
-        'location': '',
-        'description': ''
-    }
-    
-    # Extract time information
-    time_elem = container.find(lambda tag: tag.name in ['div', 'span', 'p'] and 'Saat :' in tag.text)
-    if time_elem:
-        event_info['time'] = time_elem.get_text(strip=True)
-    
-    # Extract location information
-    location_elem = container.find(lambda tag: tag.name in ['div', 'span', 'p'] and 'Yer :' in tag.text)
-    if location_elem:
-        event_info['location'] = location_elem.get_text(strip=True)
-    
-    # Try to extract title
-    title_candidates = [
-        container.find('h1'), container.find('h2'), container.find('h3'),
-        container.find('h4'), container.find('strong'), container.find('b')
-    ]
-    
-    for candidate in title_candidates:
-        if candidate and candidate.get_text(strip=True):
-            text = candidate.get_text(strip=True)
-            if 'Saat :' not in text and 'Yer :' not in text:
-                event_info['title'] = text
-                break
-    
-    # If no title found, use the first substantial text
-    if not event_info['title']:
-        paragraphs = container.find_all('p')
-        for p in paragraphs:
-            text = p.get_text(strip=True)
-            if len(text) > 10 and 'Saat :' not in text and 'Yer :' not in text:
-                event_info['title'] = text[:100]
-                break
-    
-    # Extract URL
-    link = container.find('a')
-    if link and link.has_attr('href'):
-        url = link['href']
-        if url.startswith('/'):
-            url = 'https://www.yildiz.edu.tr' + url
-        event_info['url'] = url
-    
-    # Look for date information
-    date_patterns = [
-        r'\d{1,2}\.\d{1,2}\.\d{4}',  # DD.MM.YYYY
-        r'\d{1,2}/\d{1,2}/\d{4}',    # DD/MM/YYYY
-        r'\d{4}-\d{1,2}-\d{1,2}',    # YYYY-MM-DD
-        r'\d{1,2} \w+ \d{4}'         # DD Month YYYY
-    ]
-    
-    text = container.get_text()
-    for pattern in date_patterns:
-        match = re.search(pattern, text)
-        if match:
-            event_info['date'] = match.group(0)
-            break
-    
-    return event_info
-
-def find_date_near_element(element):
-    """Find date information near an element"""
-    # Check the element itself
-    text = element.get_text()
-    date_patterns = [
-        r'\d{1,2}\.\d{1,2}\.\d{4}',  # DD.MM.YYYY
-        r'\d{1,2}/\d{1,2}/\d{4}',    # DD/MM/YYYY
-        r'\d{4}-\d{1,2}-\d{1,2}',    # YYYY-MM-DD
-        r'\d{1,2} \w+ \d{4}'         # DD Month YYYY
-    ]
-    
-    for pattern in date_patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(0)
-    
-    # Check siblings
-    if element.parent:
-        siblings = list(element.parent.contents)
-        for sibling in siblings:
-            if hasattr(sibling, 'get_text'):
-                text = sibling.get_text()
-                for pattern in date_patterns:
-                    match = re.search(pattern, text)
-                    if match:
-                        return match.group(0)
-    
-    return ''
-
-def find_time_near_element(element):
-    """Find time information near an element"""
-    # Check the element and nearby elements for time information
-    
-    # Check the element itself
-    if 'Saat :' in element.get_text():
-        return element.get_text(strip=True)
-    
-    # Check nearby elements
-    if element.parent:
-        time_elem = element.parent.find(lambda tag: tag.name in ['div', 'span', 'p'] and 'Saat :' in tag.text)
-        if time_elem:
-            return time_elem.get_text(strip=True)
-    
-    # Look in surrounding area
-    surrounding = element.find_next(lambda tag: tag.name in ['div', 'span', 'p'] and 'Saat :' in tag.text)
-    if surrounding:
-        return surrounding.get_text(strip=True)
-    
-    return ''
-
-def find_location_near_element(element):
-    """Find location information near an element"""
-    # Check the element and nearby elements for location information
-    
-    # Check the element itself
-    if 'Yer :' in element.get_text():
-        return element.get_text(strip=True)
-    
-    # Check nearby elements
-    if element.parent:
-        loc_elem = element.parent.find(lambda tag: tag.name in ['div', 'span', 'p'] and 'Yer :' in tag.text)
-        if loc_elem:
-            return loc_elem.get_text(strip=True)
-    
-    # Look in surrounding area
-    surrounding = element.find_next(lambda tag: tag.name in ['div', 'span', 'p'] and 'Yer :' in tag.text)
-    if surrounding:
-        return surrounding.get_text(strip=True)
-    
-    return ''
-
-def find_title_near_element(element):
-    """Find potential title near an element"""
-    # Check if there's a heading element nearby
-    if element.parent:
-        title_elem = element.parent.find(['h1', 'h2', 'h3', 'h4', 'h5', 'strong', 'b'])
-        if title_elem:
-            title_text = title_elem.get_text(strip=True)
-            if 'Saat :' not in title_text and 'Yer :' not in title_text:
-                return title_text
-    
-    # Look in surrounding area
-    prev_heading = element.find_previous(['h1', 'h2', 'h3', 'h4', 'h5'])
-    if prev_heading:
-        title_text = prev_heading.get_text(strip=True)
-        if 'Saat :' not in title_text and 'Yer :' not in title_text:
-            return title_text
-    
-    return ''
-
-def dom_distance(elem1, elem2):
-    """Calculate an approximate 'distance' between two elements in the DOM"""
-    # This is a simple heuristic, not a true DOM distance
-    # We'll use element positions as a proxy
-    try:
-        pos1 = str(elem1).find(str(elem1.get_text()))
-        pos2 = str(elem2).find(str(elem2.get_text()))
-        return abs(pos1 - pos2)
-    except:
-        return 1000  # Large default distance if calculation fails
 
 def generate_rss(events, filename):
     # Create the root element
@@ -556,8 +206,8 @@ def generate_rss(events, filename):
             if date_str and date_str != 'Date not found':
                 # Try different date formats
                 date_formats = [
-                    '%d.%m.%Y',  # DD.MM.YYYY
                     '%d/%m/%Y',  # DD/MM/YYYY
+                    '%d.%m.%Y',  # DD.MM.YYYY
                     '%Y-%m-%d',  # YYYY-MM-DD
                 ]
                 
@@ -589,10 +239,134 @@ def generate_rss(events, filename):
     
     print(f"RSS feed successfully generated: {filename}")
 
+def parse_raw_data(raw_data):
+    """Parse raw data directly provided by the user"""
+    events = []
+    
+    # Define month abbreviations in Turkish for date parsing
+    month_abbr_map = {
+        'Oca': '01', 'Şub': '02', 'Mar': '03', 'Nis': '04', 
+        'May': '05', 'Haz': '06', 'Tem': '07', 'Ağu': '08', 
+        'Eyl': '09', 'Eki': '10', 'Kas': '11', 'Ara': '12'
+    }
+    
+    # Pattern to match event entries
+    # Example: "24MayYaratıcı Drama Atölyesi: Yıldızlı Olmak YTÜ MüzesiSaat : 12:00"
+    event_pattern = r'(\d{2})(Oca|Şub|Mar|Nis|May|Haz|Tem|Ağu|Eyl|Eki|Kas|Ara)([^S]+)Saat\s*:\s*(\d{1,2}:\d{2})'
+    
+    # Find all matches
+    event_matches = re.finditer(event_pattern, raw_data)
+    
+    for match in event_matches:
+        day = match.group(1)
+        month_abbr = match.group(2)
+        month = month_abbr_map.get(month_abbr, '01')  # Default to January if not found
+        title_and_location = match.group(3).strip()
+        time = match.group(4)
+        
+        # Split title and location
+        title = title_and_location
+        location = ""
+        
+        # Check if location is specified with "Yer :" prefix
+        if "Yer :" in title_and_location:
+            parts = title_and_location.split("Yer :")
+            title = parts[0].strip()
+            if len(parts) > 1:
+                location = parts[1].strip()
+        else:
+            # Try to identify location based on common venue indicators
+            location_indicators = [
+                "Kampüsü", "Fakültesi", "Salonu", "Merkezi", "Müzesi", 
+                "Konferans", "Çevrim İçi", "YTÜ", "Davutpaşa", "Oditoryum",
+                "İstanbul Modern"
+            ]
+            
+            # Find the longest matching location
+            best_match = None
+            best_match_len = 0
+            
+            for indicator in location_indicators:
+                if indicator in title_and_location:
+                    # Find all occurrences of the indicator
+                    for match_obj in re.finditer(indicator, title_and_location):
+                        pos = match_obj.start()
+                        # Find the beginning of the location phrase
+                        start_pos = max(0, title_and_location[:pos].rfind(" "))
+                        if start_pos > 0:
+                            # Get the location phrase
+                            loc_phrase = title_and_location[start_pos:].strip()
+                            if len(loc_phrase) > best_match_len:
+                                best_match = loc_phrase
+                                best_match_len = len(loc_phrase)
+            
+            if best_match:
+                location = best_match
+                # Remove the location from the title
+                title = title_and_location[:title_and_location.rfind(best_match)].strip()
+            else:
+                title = title_and_location
+        
+        # Create a date string
+        current_year = datetime.datetime.now().year
+        date_str = f"{day}/{month}/{current_year}"
+        
+        # Create URL for the event
+        url_title = title.lower().replace(" ", "-").replace(":", "").replace("?", "").replace(".", "")
+        url_title = re.sub(r'[^a-z0-9-]', '', url_title.replace('ş', 's').replace('ı', 'i').replace('ğ', 'g').replace('ü', 'u').replace('ö', 'o').replace('ç', 'c'))
+        event_url = f"https://www.yildiz.edu.tr/universite/ytu-etkinlik-takvimi/{url_title}"
+        
+        # Create event object
+        event = {
+            'title': title,
+            'url': event_url,
+            'date': date_str,
+            'time': time,
+            'location': location,
+            'description': '',
+            'day_month': f"{day}{month_abbr}"  # Store the original day+month code
+        }
+        
+        # Create combined description
+        description_parts = []
+        if date_str:
+            description_parts.append(f"Tarih: {date_str}")
+        if time:
+            description_parts.append(f"Saat: {time}")
+        if location:
+            description_parts.append(f"Yer: {location}")
+        
+        event['combined_description'] = "\n".join(description_parts)
+        
+        # Add to events list
+        events.append(event)
+    
+    # Remove duplicate events (same title and time)
+    unique_events = []
+    seen = set()
+    
+    for event in events:
+        # Create a key based on title and time
+        key = (event['title'], event['time'])
+        if key not in seen:
+            seen.add(key)
+            unique_events.append(event)
+    
+    return unique_events
+
 if __name__ == "__main__":
-    # Scrape events
-    print("Scraping YTU events...")
-    events = scrape_ytu_events()
+    # Check if we have raw data provided by the user
+    raw_data = """
+    Yer: YIL2024202320222021AYOcakŞubatMartNisanMayısHaziranTemmuzAğustosEylülEkimKasımAralıkTÜMÜ02AraGörevde Yükselme ve Unvan Değişikliği Merkezi Yazılı Sınav SonuçlarıSaat : 13:4316EylYTÜ Bilimsel Araştırma Projesi Hazırlama Eğitimi Başlıyor YTÜ Elektrik-Elektronik Fakültesi Konferans SalonuSaat : 09:0007Hazİstanbul Modern Sanat Müzesi-YTÜ Haziran EğitimleriSaat : 13:0124MayYaratıcı Drama Atölyesi: Yıldızlı Olmak YTÜ MüzesiSaat : 12:0029MayGrad Talks: Additive Homeopathy Improves Quality of Life and Prolongs Survival in Patients with NSCLC Çevrim İçiSaat : 17:0017Mayİstanbul Modern Sanat Müzesi-YTÜ Mayıs Eğitimleri İstanbul Modern Sanat MüzesiSaat : 10:1004HazGradColloquium 2024 - Yapay Zeka Davupaşa Kampüsü-Tarihi HamamSaat : 09:0015MayPanel: Azerbaycan'da Eğitimin Gelişme Aşamaları, Türk Eğitimiyle İlişkiler Prof. Dr. Ahmet KARADENİZ Konferans Salonu - Fen-Edebiyat FakültesiSaat : 11:0017NisGrad Talks: Designing for Empathy: Why is it Essential for Our World?Saat : 21:0016Nisİstanbul Modern Sanat Müzesi-YTÜ Nisan EğitimleriSaat : 14:2111Marİstanbul Modern Sanat Müzesi-YTÜ Mart EğitimleriSaat : 16:4616Şubİstanbul Modern Sanat Müzesi-YTÜ Şubat EğitimleriSaat : 10:0121ŞubGrad Talks: Chalcogenide Glasses and Ceramics for IR Applications and Beyond Çevrim İçiSaat : 17:0031OcaRevolutionizing Climate Solutions: Unveiling the Energy and Economic Aspects of Direct Air Carbon Capture Çevrim İçiSaat : 17:0020ŞubCERN Masterclass Etkinliğini YTÜ'de düzenliyor. Davutpaşa KampüsüSaat : 10:0018OcaCanis Majoris 2023 Konseri Davutpaşa Kongre ve Kültür MerkeziSaat : 19:0017OcaTechnology Management Days in İstanbul Symposium YTÜ Yıldız Kampüsü- OditoryumSaat : 10:0027AraFBE Grad Careers Seminer Serisi 1 – Yıldızlı Akademisyenlerin Doktora Sonrası Uluslararası Kariyer Yolculukları Çevrim İçiSaat : 17:0021Ara10. Yıldız Uluslararası Sosyal Bilimler Kongresi Çevrim İçiSaat : 09:3019AraInternational Conference: At the Crossroads: Türkiye-India Relations Davutpaşa Kampüsü-İktisadi ve İdari Bilimler FakültesiSaat : 09:00SayfalamaPage1Page2Page3Page4Sonraki sayfa›Son sayfa»GeriPaylaş
+    """
+    
+    if raw_data.strip():
+        print("Parsing provided raw data...")
+        events = parse_raw_data(raw_data)
+    else:
+        # Scrape events from the website
+        print("Scraping YTU events...")
+        events = scrape_ytu_events()
     
     if events:
         print(f"Found {len(events)} events")
