@@ -1,7 +1,7 @@
 name: RSS Güncelleme
 on:
   schedule:
-    - cron: '0 2,8,14,20 * * *' # Günde 4 kez: 02:00, 08:00, 14:00, 20:00 UTC (Türkiye saatiyle 05:00, 11:00, 17:00, 23:00)
+    - cron: '0 2,4,6,8,14,20 * * *' # Günde 4 kez: 02:00, 08:00, 14:00, 20:00 UTC (Türkiye saatiyle 05:00, 11:00, 17:00, 23:00)
   workflow_dispatch: # Manuel çalıştırma için
 permissions:
   contents: write # Repository içeriğine yazma izni ekleyin
