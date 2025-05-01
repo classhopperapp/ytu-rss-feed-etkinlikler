@@ -1,0 +1,6 @@
+INFO:root:Request to https://www.yildiz.edu.tr/universite/haberler/ytu-etkinlik-takvimi returned status code: 200
+INFO:root:Number of unique events after filtering: 20
+INFO:root:Request to https://www.yildiz.edu.tr/universite/haberler/ytu-etkinlik-takvimi returned status code: 200
+INFO:root:Number of unique events after filtering: 20
+INFO:root:Request to https://www.yildiz.edu.tr/universite/haberler/ytu-etkinlik-takvimi returned status code: 200
+INFO:root:Number of unique events after filtering: 20
